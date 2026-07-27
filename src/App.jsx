@@ -24,6 +24,30 @@ const yesterdayStr = () => spDate(-1);
 const br = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}` : "");
 const lojaNum = (id) => Number(String(id).replace(/\D/g, "")) || 0;
 
+/* ---------- Busca paginada: puxa TODOS os atendimentos do período ----------
+   O Supabase/PostgREST limita cada requisição a 1000 linhas por padrão.
+   Aqui buscamos em blocos de 1000 até acabar, sem truncar em períodos longos. */
+const fetchAtendimentosPeriodo = async (deDia, ateDia) => {
+  const TAM = 1000;
+  let inicio = 0;
+  let todos = [];
+  while (true) {
+    const { data, error } = await supabase
+      .from("atendimentos")
+      .select("loja_id,vendedor_id,vendeu,dia")
+      .gte("dia", deDia)
+      .lte("dia", ateDia)
+      .order("dia", { ascending: true })
+      .range(inicio, inicio + TAM - 1);
+    if (error) break;
+    const bloco = data || [];
+    todos = todos.concat(bloco);
+    if (bloco.length < TAM) break;   // último bloco alcançado
+    inicio += TAM;
+  }
+  return todos;
+};
+
 /* ============================================================
    APP
    ============================================================ */
@@ -289,8 +313,9 @@ function Painel({ profile, onLogout }) {
   }, []);
 
   useEffect(() => {
-    supabase.from("atendimentos").select("loja_id,vendedor_id,vendeu,dia").gte("dia", rng[0]).lte("dia", rng[1])
-      .then(({ data }) => setLogs(data || []));
+    let alive = true;
+    fetchAtendimentosPeriodo(rng[0], rng[1]).then((data) => { if (alive) setLogs(data); });
+    return () => { alive = false; };
   }, [rng[0], rng[1]]);
 
   useEffect(() => {
